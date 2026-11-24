@@ -1,0 +1,634 @@
+---
+title: "Simulación Estocástica: Tarea 8"
+author: "Carlos Alberto Crispin Montes"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: false
+    toc_depth: 2
+    number_sections: false
+
+fontsize: 11pt
+geometry: margin=2.5cm
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  fig.crop = FALSE
+)
+
+############################################################
+# Required libraries
+library(ggplot2)            # Plots
+library(dplyr)              # cummean
+############################################################
+```
+
+
+### 1. Sea $X$ una variable aleatoria exponencial de parámetro $\lambda$ y $g(x) = \mathbb{I}(x \geq \tau)$ para alguna $\tau > 0$. Supongamos que se desea calcular
+
+$$\theta = \mathbb{E}(g(X)) = \int_{\tau}^{\infty} \lambda \exp(-\lambda x)\,dx$$
+
+\vspace{0.5cm}
+
+**(a) Para $\lambda = 1$ y $\tau = 4$, construye el estimador de Monte Carlo clásico. Genera 500 muestras de tamaño 1000 y estudia la distribución empírica de los estimadores obtenidos. Compara su media y varianza empíricas con los valores teóricos.**
+
+**Respuesta:**
+
+**Valor exacto.** Como $X\sim\text{Exp}(\lambda)$, la integral se calcula directamente:
+$$\theta = \int_{\tau}^{\infty}\lambda e^{-\lambda x}\,dx = \Big[-e^{-\lambda x}\Big]_{\tau}^{\infty} = e^{-\lambda\tau}.$$
+Con $\lambda=1$ y $\tau=4$,
+$$\boxed{\theta = e^{-4}\approx 0.0183156}$$
+
+**Estimador de Monte Carlo clásico.** Si $X_1,\dots,X_n$ son i.i.d. $\text{Exp}(\lambda)$, el estimador clásico es el promedio muestral de $g(X_i)$:
+$$\hat\theta_n = \frac{1}{n}\sum_{i=1}^{n} g(X_i) = \frac{1}{n}\sum_{i=1}^{n}\mathbb{I}(X_i\ge\tau),$$
+es decir, la proporción de observaciones que caen en $[\tau,\infty)$.
+
+**Valores teóricos de su media y varianza.** Cada $g(X_i)=\mathbb{I}(X_i\ge\tau)$ es una Bernoulli con probabilidad de éxito $P(X_i\ge\tau)=\theta$, así que $E(g(X_i))=\theta$ y $\text{Var}(g(X_i))=\theta(1-\theta)$. Por linealidad de la esperanza y la independencia de las $X_i$,
+$$E(\hat\theta_n)=\frac{1}{n}\sum_{i=1}^n E(g(X_i)) = \theta, \qquad \text{Var}(\hat\theta_n) = \frac{1}{n^2}\sum_{i=1}^n\text{Var}(g(X_i)) = \frac{\theta(1-\theta)}{n}.$$
+Entonces $\hat\theta_n$ es insesgado y, con $n=1000$,
+$$\text{Var}(\hat\theta_{1000}) = \frac{e^{-4}(1-e^{-4})}{1000}\approx 1.798\times10^{-5}, \qquad \text{sd}(\hat\theta_{1000})\approx 0.00424.$$
+
+Además, como $n\hat\theta_n=\sum_{i=1}^n\mathbb{I}(X_i\ge\tau)$ es una suma de $n$ Bernoulli independientes con parámetro $\theta$, conocemos la distribución exacta del estimador:
+$$n\hat\theta_n\sim\text{Bin}(n,\theta).$$
+
+**Algoritmo:**
+
+1. Simular una matriz de $500\times1000$ exponenciales $\text{Exp}(1)$ i.i.d., donde cada renglón $j$ es una muestra $X_{1}^{(j)},\dots,X_{1000}^{(j)}$.
+
+2. Marcar las simulaciones que caen en la región objetivo, $\mathbb{I}\big(X_i^{(j)}\ge 4\big)$.
+
+3. Para cada renglón calcular el promedio acumulado $\hat\theta_k^{(j)} = \frac{1}{k}\sum_{i=1}^{k}\mathbb{I}\big(X_i^{(j)}\ge 4\big)$, $k=1,\dots,1000$. La última columna son los $500$ estimadores $\hat\theta^{(1)}_{1000},\dots,\hat\theta^{(500)}_{1000}$.
+
+```{r MCclasico1, echo=TRUE}
+# Objetivo: theta = P(X >= tau) con X ~ Exp(lambda)
+# Probabilidad exacta: exp(-lambda*tau)
+set.seed(2026)
+lambda = 1
+tau    = 4
+theta1 = exp(-lambda*tau)
+
+# Consideramos m experimentos de Monte Carlo independientes,
+# cada uno de tamaño n
+m = 500
+n = 1000
+sims_MC1 = matrix(rexp(m*n, rate = lambda), nrow = m, ncol = n, byrow = T)
+
+# Marcamos las simulaciones que caen en la región objetivo y
+# construimos la matriz de estimadores puntuales
+flag_MC1  = sims_MC1 >= tau
+theta_MC1 = t(apply(flag_MC1, 1, cummean))
+
+# Los 500 estimadores con n = 1000 (última columna)
+est_MC1 = theta_MC1[, n]
+
+# Valores teóricos
+var_teo1 = theta1*(1 - theta1)/n
+```
+
+Primero graficamos el estimador del primer renglón conforme aumenta el número de simulaciones, junto con el rango empírico (mínimo y máximo) de los $500$ experimentos:
+
+```{r RangoMC1, echo=TRUE, fig.width=7, fig.height=4.5}
+# Estimador puntual (primer renglón) y rango empírico
+df_theta_MC1 = data.frame(
+  n = 1:n,
+  estimate = theta_MC1[1, ],
+  lower = apply(theta_MC1, 2, min),
+  upper = apply(theta_MC1, 2, max)
+)
+
+ggplot(df_theta_MC1, aes(x = n)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "lightblue", alpha = 0.75) +
+  geom_line(aes(y = estimate), linewidth = 0.7) +
+  geom_hline(yintercept = theta1, col = "darkred") +
+  theme_minimal() +
+  labs(x = "Número de simulaciones", y = "Estimador de Monte Carlo")
+```
+
+Comparamos la media y la varianza empíricas de los $500$ estimadores con $n=1000$ con los valores teóricos:
+
+```{r TablaMC1}
+tabla_1a = data.frame(
+  Cantidad = c("Media", "Varianza", "Desv. estándar"),
+  Empirico = sapply(c(mean(est_MC1), var(est_MC1), sd(est_MC1)), function(v) format(signif(v, 4))),
+  Teorico  = sapply(c(theta1, var_teo1, sqrt(var_teo1)), function(v) format(signif(v, 4)))
+)
+knitr::kable(tabla_1a, align = "lrr",
+             col.names = c("", "Empírico (500 muestras)", "Teórico"))
+```
+
+Para estudiar la distribución empírica graficamos el histograma de los $500$ estimadores $\hat\theta_{1000}$. Como $1000\,\hat\theta_{1000}\sim\text{Bin}(1000,\theta)$, encima ponemos las frecuencias esperadas por la binomial (puntos) y marcamos la media teórica $\theta$ y la media empírica de los estimadores:
+
+```{r HistMC1, echo=TRUE, fig.width=7, fig.height=4.5}
+# Número de simulaciones que sí aportan al estimador en cada experimento
+in_region_MC1 = apply(flag_MC1, 1, sum)
+df_in_region_MC1 = data.frame(x = in_region_MC1)
+
+# Frecuencias esperadas bajo Bin(n, theta)
+k = min(in_region_MC1):max(in_region_MC1)
+df_binom1 = data.frame(x = k, esperada = m*dbinom(k, size = n, prob = theta1))
+
+# Media teórica y media empírica
+df_medias1 = data.frame(
+  valor = c(theta1, mean(est_MC1)),
+  Media = c("Media teórica", "Media empírica")
+)
+
+ggplot(data = df_in_region_MC1, aes(x/n)) +
+  geom_histogram(binwidth = 1/n, col = "white", fill = "lightsteelblue") +
+  geom_point(data = df_binom1, aes(x = x/n, y = esperada), color = "grey30", size = 1.8) +
+  geom_vline(data = df_medias1, aes(xintercept = valor, color = Media, linetype = Media),
+             linewidth = 0.8) +
+  scale_color_manual(name = "", values = c("Media teórica" = "darkred",
+                                           "Media empírica" = "steelblue4")) +
+  scale_linetype_manual(name = "", values = c("Media teórica" = "solid",
+                                              "Media empírica" = "dashed")) +
+  theme_minimal() +
+  theme(legend.position = "top") +
+  labs(x = expression(hat(theta)[1000]), y = "Frecuencia")
+```
+
+**Comentarios.** La media empírica ($`r format(mean(est_MC1), digits = 5)`$) y la varianza empírica ($`r round(var(est_MC1)*1e5, 3)`\times10^{-5}$) coinciden con los valores teóricos $\theta\approx0.01832$ y $1.798\times10^{-5}$, y el histograma se ajusta a la distribución binomial. Sin embargo, como $\{X\ge4\}$ es un evento raro, el error relativo del estimador es grande: su coeficiente de variación es $\text{sd}(\hat\theta_n)/\theta=\sqrt{(1-\theta)/(n\theta)}\approx0.23$, es decir, alrededor de $23\%$.
+
+
+\vspace{1.5cm}
+
+**(b) Calcula la transformada de Esscher de la distribución exponencial y utilízala como distribución instrumental para construir un estimador mediante muestreo por importancia. Selecciona el parámetro de la transformada de manera que la esperanza bajo la nueva distribución sea igual a $\tau$. Compara la variabilidad del nuevo estimador con la del estimador clásico.**
+
+**Respuesta:**
+
+**Transformada de Esscher.** Para una densidad $f$ con generadora de momentos $M(t)=E(e^{tX})$, la transformada de Esscher con parámetro $t$ es la densidad
+$$f_t(x) = \frac{e^{tx}f(x)}{M(t)}.$$
+Si $X\sim\text{Exp}(\lambda)$, entonces $M(t)=\int_0^\infty e^{tx}\lambda e^{-\lambda x}dx=\frac{\lambda}{\lambda-t}$ para $t<\lambda$, y
+$$f_t(x) = \frac{\lambda e^{-(\lambda-t)x}}{\lambda/(\lambda-t)} = (\lambda-t)e^{-(\lambda-t)x},\qquad x>0,$$
+es decir, $f_t$ es la densidad de una $\text{Exp}(\lambda-t)$.
+
+**Elección de $t$.** Queremos $E_t(X)=\frac{1}{\lambda-t}=\tau$, de donde $t=\lambda-\frac1\tau$. Con $\lambda=1$ y $\tau=4$ queda $t=\frac34$, y la distribución instrumental es $\text{Exp}(1/4)$.
+
+**Estimador por importancia.** Como $\theta=\int g(x)\frac{f(x)}{f_t(x)}f_t(x)\,dx=E_t\!\left[g(X)\,w(X)\right]$, con peso
+$$w(x)=\frac{f(x)}{f_t(x)}=\frac{e^{-x}}{\frac14e^{-x/4}}=4e^{-3x/4},$$
+si $X_1,\dots,X_n$ son i.i.d. $\text{Exp}(1/4)$ el estimador es
+$$\hat\theta_n^{IS}=\frac1n\sum_{i=1}^n\mathbb{I}(X_i\ge4)\,4e^{-3X_i/4}.$$
+
+```{r MCimportancia1, echo=TRUE}
+# Muestreo por importancia usando como instrumental la
+# transformada de Esscher: Exp(lambda - t), t = lambda - 1/tau
+t_esscher = lambda - 1/tau
+sims_IS1 = matrix(rexp(m*n, rate = lambda - t_esscher), nrow = m,
+                  ncol = n, byrow = T)
+
+# ahora cada simulación que cae en [4, inf) se multiplica por su peso
+flag_IS1 = sims_IS1 >= tau
+theta_IS1 = matrix(nrow = m, ncol = n)
+for(i in 1:m){
+  weight = 4*exp(-3*sims_IS1[i, ]/4)
+  theta_IS1[i, ] = cumsum(flag_IS1[i, ]*weight)/(1:n)
+}
+
+df_theta_IS1 = data.frame(
+  n = 1:n,
+  estimate = theta_IS1[1, ],
+  lower = apply(theta_IS1, 2, min),
+  upper = apply(theta_IS1, 2, max)
+)
+```
+
+Comparamos el rango empírico de ambos métodos. Recortamos el eje vertical, si no las bandas casi no se distinguen:
+
+```{r ComparaIS1, echo=TRUE, fig.width=7, fig.height=4.5}
+# Comparación entre MC clásico e importancia
+ggplot() +
+  geom_ribbon(data = df_theta_MC1, aes(x = n, ymin = lower, ymax = upper,
+              fill = "MC clásico"), alpha = 0.55) +
+  geom_ribbon(data = df_theta_IS1, aes(x = n, ymin = lower, ymax = upper,
+              fill = "Muestreo por importancia"), alpha = 0.40) +
+  geom_line(data = df_theta_IS1, aes(x = n, y = estimate),
+            color = "steelblue4", linewidth = 0.7) +
+  geom_hline(yintercept = theta1, color = "darkred") +
+  scale_fill_manual(name = "Rango empírico",
+                    values = c("MC clásico" = "grey65",
+                               "Muestreo por importancia" = "steelblue"),
+                    breaks = c("MC clásico", "Muestreo por importancia")) +
+  coord_cartesian(ylim = c(0, 0.06)) +
+  theme_minimal() +
+  theme(legend.position = "top") +
+  labs(x = "Número de simulaciones", y = "Estimador de Monte Carlo")
+
+# Comparación de varianzas empíricas con n = 1000
+var_MC1 = var(theta_MC1[, n])
+var_IS1 = var(theta_IS1[, n])
+
+c(
+  MC = var_MC1,
+  IS = var_IS1,
+  Reduccion_varianza = var_MC1/var_IS1
+)
+```
+
+**Comentarios.** Con importancia la varianza empírica es unas $`r round(var(theta_MC1[, n])/var(theta_IS1[, n]))`$ veces menor que la del clásico y la banda es mucho más angosta.
+
+---
+
+\newpage
+
+
+### 2. Sean $U$ y $W$ dos variables aleatorias independientes con distribución uniforme en el intervalo $(0,1)$. Se desea estimar
+
+$$\theta = \mathbb{E}\left[e^{(U+W)^2}\right].$$
+
+\vspace{0.5cm}
+
+**(a) Construye el estimador de Monte Carlo clásico y estudia su variabilidad mediante 500 muestras de tamaño 1000.**
+
+**Respuesta:**
+
+**Valor de $\theta$.** Sea $S=U+W$. Como $U,W$ son uniformes independientes en $(0,1)$, la suma $S$ tiene distribución triangular en $(0,2)$ con densidad
+$$f_S(s) = \begin{cases} s, & 0<s\le 1,\\ 2-s, & 1<s<2.\end{cases}$$
+Entonces
+$$\theta = E\big(e^{S^2}\big) = \int_0^1 s\,e^{s^2}\,ds + \int_1^2 (2-s)\,e^{s^2}\,ds.$$
+La primera integral y la parte $-\int_1^2 s e^{s^2}ds$ salen directo con el cambio $u=s^2$:
+$$\int_0^1 s\,e^{s^2}\,ds = \frac{e-1}{2}, \qquad \int_1^2 s\,e^{s^2}\,ds = \frac{e^4-e}{2},$$
+pero $\int_1^2 e^{s^2}ds$ no tiene primitiva elemental, así que
+$$\theta = \frac{2e-1-e^4}{2} + 2\int_1^2 e^{s^2}\,ds,$$
+y la integral que queda la calculamos numéricamente con `integrate`:
+$$\boxed{\theta \approx 4.89916}$$
+
+**Estimador de Monte Carlo clásico.** Si $(U_1,W_1),\dots,(U_n,W_n)$ son i.i.d. con $U_i,W_i\sim U(0,1)$ independientes, el estimador clásico es
+$$\hat\theta_n = \frac{1}{n}\sum_{i=1}^{n} e^{(U_i+W_i)^2}.$$
+
+**Valores teóricos de su media y varianza.** Sea $Y_i=e^{(U_i+W_i)^2}$. Las $Y_i$ son i.i.d. con $E(Y_i)=\theta$, entonces igual que en el ejercicio 1,
+$$E(\hat\theta_n)=\theta, \qquad \text{Var}(\hat\theta_n)=\frac{\sigma^2}{n},\quad \text{con } \sigma^2=\text{Var}(Y_1) = E\big(e^{2S^2}\big)-\theta^2.$$
+Para el segundo momento usamos otra vez la densidad de $S$:
+$$E\big(e^{2S^2}\big) = \int_0^1 s\,e^{2s^2}\,ds + \int_1^2(2-s)\,e^{2s^2}\,ds,$$
+que de nuevo calculamos numéricamente. Con esto $\sigma^2\approx 35.514$ y, con $n=1000$,
+$$\text{Var}(\hat\theta_{1000})\approx 0.03551, \qquad \text{sd}(\hat\theta_{1000})\approx 0.1885.$$
+
+**Algoritmo:**
+
+1. Simular dos matrices de $500\times1000$ uniformes $U(0,1)$ i.i.d., una para las $U$ y otra para las $W$. Cada renglón $j$ es un experimento.
+
+2. Evaluar $Y_i^{(j)} = e^{(U_i^{(j)}+W_i^{(j)})^2}$.
+
+3. Para cada renglón calcular el promedio acumulado $\hat\theta_k^{(j)} = \frac{1}{k}\sum_{i=1}^{k}Y_i^{(j)}$, $k=1,\dots,1000$. La última columna son los $500$ estimadores $\hat\theta^{(1)}_{1000},\dots,\hat\theta^{(500)}_{1000}$.
+
+```{r MCclasico2, echo=TRUE}
+# Objetivo: theta = E(exp((U+W)^2)) con U, W ~ U(0,1) independientes
+# Valor "exacto" con la densidad triangular de S = U + W
+set.seed(2026)
+f_S      = function(s) ifelse(s <= 1, s, 2 - s)
+theta2   = integrate(function(s) f_S(s)*exp(s^2), 0, 2)$value
+momento2 = integrate(function(s) f_S(s)*exp(2*s^2), 0, 2)$value
+sigma2_2 = momento2 - theta2^2
+
+# 500 experimentos de 1000 parejas (U, W) cada uno
+m = 500
+n = 1000
+U = matrix(runif(n*m), nrow = m, ncol = n, byrow = TRUE)
+W = matrix(runif(n*m), nrow = m, ncol = n, byrow = TRUE)
+
+# evaluamos e^{(U+W)^2} y promediamos por renglón
+Y2 = exp((U + W)^2)
+theta_MC2 = t(apply(Y2, 1, cummean))
+
+# Los 500 estimadores con n = 1000 (última columna)
+est_MC2 = theta_MC2[, n]
+
+# Varianza teórica del estimador
+var_teo2 = sigma2_2/n
+```
+
+Graficamos el estimador del primer renglón y el rango empírico de los $500$ experimentos:
+
+```{r RangoMC2, echo=TRUE, fig.width=7, fig.height=4.5}
+# Estimador puntual (primer renglón) y rango empírico
+df_theta_MC2 = data.frame(
+  n = 1:n,
+  estimate = theta_MC2[1, ],
+  lower = apply(theta_MC2, 2, min),
+  upper = apply(theta_MC2, 2, max)
+)
+
+ggplot(df_theta_MC2, aes(x = n)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "lightblue", alpha = 0.75) +
+  geom_line(aes(y = estimate), linewidth = 0.7) +
+  geom_hline(yintercept = theta2, col = "darkred") +
+  theme_minimal() +
+  labs(x = "Número de simulaciones", y = "Estimador de Monte Carlo")
+```
+
+En la tabla están la media y la varianza de los $500$ estimadores con $n=1000$, junto a sus valores teóricos:
+
+```{r TablaMC2}
+tabla_2a = data.frame(
+  Cantidad = c("Media", "Varianza", "Desv. estándar"),
+  Empirico = sapply(c(mean(est_MC2), var(est_MC2), sd(est_MC2)), function(v) format(signif(v, 4))),
+  Teorico  = sapply(c(theta2, var_teo2, sqrt(var_teo2)), function(v) format(signif(v, 4)))
+)
+knitr::kable(tabla_2a, align = "lrr",
+             col.names = c("", "Empírico (500 muestras)", "Teórico"))
+```
+
+Para estudiar la variabilidad calculamos, para cada $k=1,\dots,1000$, la varianza de los $500$ estimadores $\hat\theta_k^{(1)},\dots,\hat\theta_k^{(500)}$ y la comparamos con la varianza teórica $\sigma^2/k$. Para $k$ chico la varianza es enorme, por eso solo mostramos hasta $0.5$:
+
+```{r VarMC2, echo=TRUE, fig.width=7, fig.height=4.5}
+# Varianza empírica de los 500 estimadores para cada tamaño de muestra
+df_var_MC2 = data.frame(
+  n = 1:n,
+  empirica = apply(theta_MC2, 2, var),
+  teorica = sigma2_2/(1:n)
+)
+
+ggplot(df_var_MC2, aes(x = n)) +
+  geom_line(aes(y = empirica, color = "Empírica"), linewidth = 0.8) +
+  geom_line(aes(y = teorica, color = "Teórica"), linetype = "dashed", linewidth = 0.8) +
+  scale_color_manual(name = "Varianza", values = c("Empírica" = "steelblue4",
+                                                   "Teórica" = "darkred")) +
+  coord_cartesian(ylim = c(0, 0.5)) +
+  theme_minimal() +
+  theme(legend.position = "top") +
+  labs(x = "Número de simulaciones", y = "Varianza del estimador")
+```
+
+**Comentarios.** La media de los $500$ estimadores ($`r format(mean(est_MC2), digits = 5)`$) es muy cercana a $\theta\approx4.899$. La varianza decrece como $\sigma^2/n$ y con $n=1000$ vale $`r format(var(est_MC2), digits = 3)`$, frente a la teórica $0.0355$ (desviación estándar teórica de $0.19$, alrededor del $4\%$ de $\theta$). La empírica es algo mayor, lo cual es razonable porque estimar una varianza con solo $500$ valores tiene un error considerable cuando la variable toma valores extremos, como ocurre aquí. Esta varianza es grande en relación con $\theta$ porque, como $U+W\in(0,2)$, $e^{(U+W)^2}$ puede tomar valores desde $1$ hasta $e^4\approx54.6$. Con probabilidad $0.75$, $U+W\in(0.5,1.5)$ y el valor es pequeño (a lo más $e^{2.25}\approx9.5$), pero cuando $U+W$ se acerca a $2$ se obtienen valores muy alejados de $\theta\approx4.9$. Estos valores grandes y poco frecuentes son los que inflan la varianza.
+
+
+\vspace{1.5cm}
+
+**(b) Utiliza el método de variables de control considerando $Z = (U+W)^2$. Calcula $\mathbb{E}[Z]$ y estima el coeficiente óptimo de la variable de control utilizando las covarianzas y varianzas muestrales. Compara la variabilidad del nuevo estimador con la del estimador clásico.**
+
+**Respuesta:**
+
+**Esperanza de la variable de control.** Desarrollando el cuadrado y usando la independencia de $U$ y $W$,
+$$E(Z)=E(U^2)+2E(U)E(W)+E(W^2)=\frac13+2\cdot\frac12\cdot\frac12+\frac13=\frac76.$$
+
+**Estimador con variable de control.** Sea $Y=e^{(U+W)^2}$. Para cualquier constante $\beta$, la variable $Y-\beta\big(Z-\tfrac76\big)$ tiene la misma esperanza $\theta$, y su varianza es mínima cuando
+$$\beta^*=\frac{\text{Cov}(Y,Z)}{\text{Var}(Z)}.$$
+Como no conocemos $\text{Cov}(Y,Z)$, en cada muestra $(U_1,W_1),\dots,(U_n,W_n)$ estimamos $\beta^*$ con la covarianza y la varianza muestrales,
+$$\hat\beta=\frac{\sum_{i=1}^n(Y_i-\bar Y_n)(Z_i-\bar Z_n)}{\sum_{i=1}^n(Z_i-\bar Z_n)^2},$$
+y el estimador queda
+$$\hat\theta_n^{CV}=\bar Y_n-\hat\beta\Big(\bar Z_n-\frac76\Big).$$
+
+Como referencia, $\beta^*$ sí se puede calcular con la densidad triangular de $S=U+W$, igual que $\theta$ en el inciso (a). Por un lado $E(Z^2)=E(S^4)=\int_0^1 s^5\,ds+\int_1^2(2-s)s^4\,ds=\frac{31}{15}$, así que $\text{Var}(Z)=\frac{31}{15}-\frac{49}{36}=\frac{127}{180}$. Por otro, $\text{Cov}(Y,Z)=E\big(S^2e^{S^2}\big)-\frac76\,\theta$, donde $E\big(S^2e^{S^2}\big)$ se calcula numéricamente. Con esto $\beta^*\approx6.20$.
+Usamos las mismas `U` y `W` del inciso (a), así los dos métodos se comparan con las mismas simulaciones. Además, para que el estimador con $k$ simulaciones use solo esas $k$ simulaciones, $\hat\beta$ se recalcula para cada $k$ con las sumas acumuladas:
+$$\hat\beta_k=\frac{\sum_{i=1}^kY_iZ_i-k\bar Y_k\bar Z_k}{\sum_{i=1}^kZ_i^2-k\bar Z_k^2},\qquad \hat\theta_k^{CV}=\bar Y_k-\hat\beta_k\Big(\bar Z_k-\frac76\Big).$$
+
+```{r MCcontrol2, echo=TRUE}
+# Variable de control Z = (U+W)^2 con E(Z) = 7/6
+Z2  = (U + W)^2
+E_Z = 7/6
+
+# beta* "verdadero" para comparar (con la densidad triangular f_S)
+cov_YZ    = integrate(function(s) f_S(s)*s^2*exp(s^2), 0, 2)$value - E_Z*theta2
+beta_star = cov_YZ/(127/180)
+beta_star
+
+# Para cada experimento y cada k: coeficiente estimado con la
+# covarianza y la varianza muestrales de las primeras k simulaciones
+theta_CV2 = matrix(nrow = m, ncol = n)
+beta2 = numeric(m)
+k = 1:n
+for(i in 1:m){
+  Y_bar = cummean(Y2[i, ])
+  Z_bar = cummean(Z2[i, ])
+  beta_k = (cumsum(Y2[i, ]*Z2[i, ]) - k*Y_bar*Z_bar)/
+           (cumsum(Z2[i, ]^2) - k*Z_bar^2)
+  theta_CV2[i, ] = Y_bar - beta_k*(Z_bar - E_Z)
+  beta2[i] = beta_k[n]
+}
+theta_CV2[, 1] = NA     # con k = 1 la varianza muestral es 0
+
+# rango empírico (en k = 1 queda NA)
+df_theta_CV2 = data.frame(
+  n = 1:n,
+  estimate = theta_CV2[1, ],
+  lower = apply(theta_CV2, 2, min),
+  upper = apply(theta_CV2, 2, max)
+)
+
+
+summary(beta2)
+```
+
+Ahora las dos bandas juntas:
+
+```{r ComparaCV2, echo=TRUE, fig.width=7, fig.height=4.5}
+# Comparación entre MC clásico y variable de control
+ggplot() +
+  geom_ribbon(data = df_theta_MC2, aes(x = n, ymin = lower, ymax = upper,
+              fill = "MC clásico"), alpha = 0.45) +
+  geom_ribbon(data = df_theta_CV2, aes(x = n, ymin = lower, ymax = upper,
+              fill = "Variable de control"), alpha = 0.45) +
+  geom_line(data = df_theta_CV2, aes(x = n, y = estimate), color = "steelblue4") +
+  geom_hline(yintercept = theta2, color = "darkred") +
+  scale_fill_manual(name = "Rango empírico",
+                    values = c("MC clásico" = "grey65",
+                               "Variable de control" = "steelblue")) +
+  coord_cartesian(ylim = c(3, 7)) +
+  theme_minimal() +
+  theme(legend.position = "top") +
+  labs(x = "Número de simulaciones", y = "Estimador de Monte Carlo")
+
+var_MC2 = var(theta_MC2[, n])
+var_CV2 = var(theta_CV2[, n])
+
+c(
+  MC = var_MC2,
+  CV = var_CV2,
+  Reduccion_varianza = var_MC2/var_CV2
+)
+```
+
+**Comentarios.** Los $\hat\beta$ estimados tienen media $`r round(mean(beta2), 2)`$, muy cerca del valor teórico $\beta^*\approx`r format(round(beta_star, 2), nsmall = 2)`$. Con la variable de control la varianza empírica del estimador es unas $`r round(var(theta_MC2[, n])/var(theta_CV2[, n]), 1)`$ veces menor que la del estimador clásico. En la gráfica, con pocas simulaciones los dos rangos son amplios: el promedio depende mucho de los pocos valores grandes de $e^{(U+W)^2}$ que comentamos en el inciso (a), y además $\hat\beta_k$ se estima con pocos datos. Con $n=1000$ el rango del clásico va de $`r round(min(theta_MC2[, n]), 2)`$ a $`r round(max(theta_MC2[, n]), 2)`$, mientras que el de la variable de control va de $`r round(min(theta_CV2[, n]), 2)`$ a $`r round(max(theta_CV2[, n]), 2)`$.
+
+
+
+---
+
+\newpage
+
+
+### 3. Considera que se desea calcular
+
+$$\theta = \int_{0}^{1} \sqrt{1+x^2}\,dx$$
+
+\vspace{0.5cm}
+
+**(a) Construye el estimador de Monte Carlo clásico y estudia su variabilidad mediante 500 muestras de tamaño 1000.**
+
+**Respuesta:**
+
+**Valor exacto.** Usando la primitiva conocida
+$$\int\sqrt{1+x^2}\,dx = \frac{x}{2}\sqrt{1+x^2} + \frac{1}{2}\ln\big(x+\sqrt{1+x^2}\big) + C,$$
+evaluamos de $0$ a $1$:
+$$\boxed{\theta = \frac{\sqrt2}{2} + \frac{1}{2}\ln\big(1+\sqrt2\big)\approx 1.147794}$$
+
+**Estimador de Monte Carlo clásico.** Escribimos la integral como una esperanza: si $X\sim U(0,1)$ su densidad es $1$ en $(0,1)$, entonces
+$$\theta = \int_0^1\sqrt{1+x^2}\cdot 1\,dx = E\Big(\sqrt{1+X^2}\Big).$$
+Así, con $X_1,\dots,X_n$ i.i.d. $U(0,1)$ el estimador clásico es
+$$\hat\theta_n = \frac{1}{n}\sum_{i=1}^n\sqrt{1+X_i^2}.$$
+
+**Valores teóricos de su media y varianza.** Sea $g(x)=\sqrt{1+x^2}$. De nuevo $E(\hat\theta_n)=\theta$ y $\text{Var}(\hat\theta_n)=\sigma^2/n$ con $\sigma^2=\text{Var}(g(X))$. Aquí el segundo momento es fácil:
+$$E\big(g(X)^2\big) = \int_0^1(1+x^2)\,dx = 1+\frac13 = \frac43,$$
+entonces
+$$\sigma^2 = \frac43-\theta^2\approx 0.015903, \qquad \text{Var}(\hat\theta_{1000})\approx 1.590\times10^{-5}, \qquad \text{sd}(\hat\theta_{1000})\approx 0.00399.$$
+
+**Algoritmo:**
+
+1. Simular una matriz de $500\times1000$ uniformes $U(0,1)$ i.i.d., donde cada renglón $j$ es una muestra $X_{1}^{(j)},\dots,X_{1000}^{(j)}$.
+
+2. Evaluar $g\big(X_i^{(j)}\big)=\sqrt{1+\big(X_i^{(j)}\big)^2}$.
+
+3. Para cada renglón calcular el promedio acumulado $\hat\theta_k^{(j)} = \frac{1}{k}\sum_{i=1}^{k}g\big(X_i^{(j)}\big)$, $k=1,\dots,1000$. La última columna son los $500$ estimadores $\hat\theta^{(1)}_{1000},\dots,\hat\theta^{(500)}_{1000}$.
+
+```{r MCclasico3, echo=TRUE}
+# Objetivo: theta = int_0^1 sqrt(1+x^2) dx = E(sqrt(1+X^2)), X ~ U(0,1)
+# Valor exacto: sqrt(2)/2 + log(1+sqrt(2))/2
+set.seed(2027)
+theta3   = sqrt(2)/2 + log(1 + sqrt(2))/2
+sigma2_3 = 4/3 - theta3^2
+
+m = 500     # experimentos
+n = 1000    # tamaño de cada uno
+X = matrix(runif(n*m), nrow = m, ncol = n, byrow = TRUE)
+
+theta_MC3 = t(apply(sqrt(1 + X^2), 1, cummean))
+
+# Los 500 estimadores con n = 1000 (última columna)
+est_MC3 = theta_MC3[, n]
+
+var_teo3 = sigma2_3/n
+```
+
+La gráfica de rango queda así:
+
+```{r RangoMC3, echo=TRUE, fig.width=7, fig.height=4.5}
+df_theta_MC3 = data.frame(
+  n = 1:n,
+  estimate = theta_MC3[1, ],
+  lower = apply(theta_MC3, 2, min),
+  upper = apply(theta_MC3, 2, max)
+)
+
+ggplot(df_theta_MC3, aes(x = n)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "lightblue", alpha = 0.75) +
+  geom_line(aes(y = estimate), linewidth = 0.7) +
+  geom_hline(yintercept = theta3, col = "darkred") +
+  theme_minimal() +
+  labs(x = "Número de simulaciones", y = "Estimador de Monte Carlo")
+```
+
+Igual que en el ejercicio anterior, comparamos con los valores teóricos:
+
+```{r TablaMC3}
+tabla_3a = data.frame(
+  Cantidad = c("Media", "Varianza", "Desv. estándar"),
+  Empirico = sapply(c(mean(est_MC3), var(est_MC3), sd(est_MC3)), function(v) format(signif(v, 7))),
+  Teorico  = sapply(c(theta3, var_teo3, sqrt(var_teo3)), function(v) format(signif(v, 7)))
+)
+knitr::kable(tabla_3a, align = "lrr",
+             col.names = c("", "Empírico (500 muestras)", "Teórico"))
+```
+
+Repetimos lo del ejercicio 2: la varianza de los $500$ estimadores para cada $k$ contra $\sigma^2/k$.
+
+```{r VarMC3, echo=TRUE, fig.width=7, fig.height=4.5}
+df_var_MC3 = data.frame(
+  n = 1:n,
+  empirica = apply(theta_MC3, 2, var),
+  teorica = sigma2_3/(1:n)
+)
+
+ggplot(df_var_MC3, aes(x = n)) +
+  geom_line(aes(y = empirica, color = "Empírica"), linewidth = 0.8) +
+  geom_line(aes(y = teorica, color = "Teórica"), linetype = "dashed", linewidth = 0.8) +
+  scale_color_manual(name = "Varianza", values = c("Empírica" = "steelblue4",
+                                                   "Teórica" = "darkred")) +
+  coord_cartesian(ylim = c(0, 0.0005)) +
+  theme_minimal() +
+  theme(legend.position = "top") +
+  labs(x = "Número de simulaciones", y = "Varianza del estimador")
+```
+
+**Comentarios.** La media de los $500$ estimadores ($`r format(mean(est_MC3), digits = 7)`$) es muy cercana a $\theta\approx1.147794$. La varianza decrece como $\sigma^2/n$ y con $n=1000$ vale $`r round(var(est_MC3)*1e5, 3)`\times10^{-5}$ (teórica $1.590\times10^{-5}$), o sea, una desviación estándar de aproximadamente $0.004$, alrededor del $0.35\%$ de $\theta$. Esta varianza es pequeña porque $\sqrt{1+x^2}$ solo toma valores entre $1$ y $\sqrt2$ en $(0,1)$.
+
+
+\vspace{1.5cm}
+
+**(b) Utiliza el método de variables antitéticas para obtener un estimador de menor varianza. Compara su variabilidad con la del estimador clásico, manteniendo el mismo número total de evaluaciones de la función en ambos métodos.**
+
+**Respuesta:**
+
+**Estimador con variables antitéticas.** Sea $g(x)=\sqrt{1+x^2}$. Si $U\sim U(0,1)$, entonces $1-U\sim U(0,1)$, por lo que $g(U)$ y $g(1-U)$ tienen la misma distribución y ambas tienen esperanza $\theta$. Con $U_1,\dots,U_{n/2}$ i.i.d. $U(0,1)$ definimos
+$$\hat\theta_n^{AV}=\frac{1}{n/2}\sum_{i=1}^{n/2}\frac{g(U_i)+g(1-U_i)}{2},$$
+que utiliza $n$ evaluaciones de $g$, las mismas que el estimador clásico $\hat\theta_n$. Como los $n/2$ pares son independientes,
+$$\text{Var}\big(\hat\theta_n^{AV}\big)=\frac{2}{n}\,\text{Var}\!\left(\frac{g(U)+g(1-U)}{2}\right)=\frac{\sigma^2+\text{Cov}\big(g(U),g(1-U)\big)}{n},$$
+donde $\sigma^2=\text{Var}(g(U))\approx0.015903$ es la misma del inciso (a). Por lo tanto, $\hat\theta_n^{AV}$ tiene menor varianza que $\hat\theta_n$ si y solo si $\text{Cov}\big(g(U),g(1-U)\big)<0$. Esto se cumple porque $g$ es creciente en $(0,1)$: cuando $g(U)$ es grande, $g(1-U)$ es pequeño, y viceversa.
+
+**Valores teóricos.** La covarianza es
+$$\text{Cov}\big(g(U),g(1-U)\big)=\int_0^1\sqrt{1+x^2}\,\sqrt{1+(1-x)^2}\,dx-\theta^2\approx-0.014490,$$
+donde la integral se calcula numéricamente. Entonces, con $n=1000$,
+$$\text{Var}\big(\hat\theta_{1000}^{AV}\big)\approx\frac{0.015903-0.014490}{1000}\approx1.414\times10^{-6},$$
+frente a $1.590\times10^{-5}$ del estimador clásico: una reducción de aproximadamente $11.2$ veces.
+
+Para mantener el mismo número total de evaluaciones, cada uno de los $500$ experimentos antitéticos utiliza $500$ pares ($1000$ evaluaciones de $g$).
+
+```{r MCantiteticas3, echo=TRUE}
+# Variables antitéticas: n/2 pares por experimento
+U_AV = matrix(runif(m*n/2), nrow = m, ncol = n/2, byrow = TRUE)
+
+# g(U) y g(1-U)
+Y = sqrt(1 + U_AV^2)
+Z = sqrt(1 + (1 - U_AV)^2)
+
+# Promedio dentro de cada par
+W_AV = (Y + Z)/2
+
+theta_AV3 = t(apply(W_AV, 1, cummean))
+
+# Estimador puntual y rango empírico; el par k usa 2k evaluaciones
+df_theta_AV3 = data.frame(
+  n = 2*(1:(n/2)),
+  estimate = theta_AV3[1, ],
+  lower = apply(theta_AV3, 2, min),
+  upper = apply(theta_AV3, 2, max)
+)
+
+# Valores teóricos
+cov_AV3     = integrate(function(x) sqrt(1 + x^2)*sqrt(1 + (1 - x)^2), 0, 1)$value - theta3^2
+var_teo_AV3 = (sigma2_3 + cov_AV3)/n
+```
+
+```{r ComparaAV3, echo=TRUE, fig.width=7, fig.height=4.5}
+# Comparación entre MC clásico y variables antitéticas
+ggplot() +
+  geom_ribbon(data = df_theta_MC3, aes(x = n, ymin = lower, ymax = upper,
+              fill = "MC clásico"), alpha = 0.45) +
+  geom_ribbon(data = df_theta_AV3, aes(x = n, ymin = lower, ymax = upper,
+              fill = "Variables antitéticas"), alpha = 0.45) +
+  geom_line(data = df_theta_AV3, aes(x = n, y = estimate),
+            color = "steelblue4", linewidth = 0.7) +
+  geom_hline(yintercept = theta3, color = "darkred") +
+  scale_fill_manual(name = "Rango empírico",
+                    values = c("MC clásico" = "grey65",
+                               "Variables antitéticas" = "steelblue")) +
+  theme_minimal() +
+  theme(legend.position = "top") +
+  labs(x = "Número de evaluaciones de g", y = "Estimador de Monte Carlo")
+
+# varianzas con 1000 evaluaciones en ambos casos
+var_MC3 = var(theta_MC3[, n])
+var_AV3 = var(theta_AV3[, n/2])
+
+c(
+  MC = var_MC3,
+  AV = var_AV3,
+  Reduccion_varianza = var_MC3/var_AV3,
+  Reduccion_teorica = var_teo3/var_teo_AV3
+)
+```
+
+**Comentarios.** Con el mismo número de evaluaciones de $g$, la varianza empírica del estimador antitético es aproximadamente $`r round(var(theta_MC3[, n])/var(theta_AV3[, n/2]), 1)`$ veces menor que la del estimador clásico, parecido a la reducción teórica de $11.2$ veces. En la gráfica ambas bandas se estrechan rápidamente alrededor de $\theta$, y la de variables antitéticas es mucho más angosta: con $1000$ evaluaciones el rango del clásico va de $`r round(min(theta_MC3[, n]), 4)`$ a $`r round(max(theta_MC3[, n]), 4)`$ y el de antitéticas de $`r round(min(theta_AV3[, n/2]), 4)`$ a $`r round(max(theta_AV3[, n/2]), 4)`$. A diferencia del ejercicio 2, donde los rangos eran amplios por los valores grandes de $e^{(U+W)^2}$, aquí $g$ está acotada entre $1$ y $\sqrt2$, y ambos métodos dan buenas estimaciones.
